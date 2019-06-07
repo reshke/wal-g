@@ -100,45 +100,64 @@ func (crypter *OpenPGPCrypter) ConfigurePGPCrypter() {
 	}
 }
 
+func (crypter *OpenPGPCrypter) setupPubKey() error {
+	crypter.mutex.RLock()
+	if crypter.PubKey != nil {
+		crypter.mutex.RUnlock()
+		return nil
+	}
+	crypter.mutex.RUnlock()
+
+	crypter.mutex.Lock()
+	defer crypter.mutex.Unlock()
+	if crypter.PubKey != nil { // already set up
+		return nil
+	}
+
+	if crypter.IsUseArmoredKey {
+		entityList, err := openpgp.ReadArmoredKeyRing(strings.NewReader(crypter.ArmoredKey))
+
+		if err != nil {
+			return err
+		}
+
+		crypter.PubKey = entityList
+	} else if crypter.IsUseArmoredKeyPath {
+		entityList, err := ReadPGPKey(crypter.ArmoredKeyPath)
+
+		if err != nil {
+			return err
+		}
+
+		crypter.PubKey = entityList
+	} else {
+		// TODO: legacy gpg external use, need to remove in next major version
+		armor, err := getPubRingArmor(crypter.KeyRingId)
+
+		if err != nil {
+			return err
+		}
+
+		entityList, err := openpgp.ReadArmoredKeyRing(bytes.NewReader(armor))
+
+		if err != nil {
+			return err
+		}
+
+		crypter.PubKey = entityList
+	}
+	return nil
+}
+
 // Encrypt creates encryption writer from ordinary writer
 func (crypter *OpenPGPCrypter) Encrypt(writer io.Writer) (io.WriteCloser, error) {
 	if !crypter.Configured {
 		return nil, NewCrypterUseMischiefError()
 	}
 
-	if crypter.PubKey == nil {
-		if crypter.IsUseArmoredKey {
-			entityList, err := openpgp.ReadArmoredKeyRing(strings.NewReader(crypter.ArmoredKey))
-
-			if err != nil {
-				return nil, err
-			}
-
-			crypter.PubKey = entityList
-		} else if crypter.IsUseArmoredKeyPath {
-			entityList, err := ReadPGPKey(crypter.ArmoredKeyPath)
-
-			if err != nil {
-				return nil, err
-			}
-
-			crypter.PubKey = entityList
-		} else {
-			// TODO: legacy gpg external use, need to remove in next major version
-			armor, err := getPubRingArmor(crypter.KeyRingId)
-
-			if err != nil {
-				return nil, err
-			}
-
-			entityList, err := openpgp.ReadArmoredKeyRing(bytes.NewReader(armor))
-
-			if err != nil {
-				return nil, err
-			}
-
-			crypter.PubKey = entityList
-		}
+	err := crypter.setupPubKey()
+	if err != nil {
+		return nil, err
 	}
 
 	// We use buffered writer because encryption starts writing header immediately,
