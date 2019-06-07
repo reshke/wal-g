@@ -88,7 +88,7 @@ func (tarBall *StorageTarBall) startUpload(name string, crypter Crypter) io.Writ
 
 	var writerToCompress io.WriteCloser = pipeWriter
 
-	if crypter != nil {
+	if crypter.IsUsed() {
 		encryptedWriter, err := crypter.Encrypt(pipeWriter)
 
 		if err != nil {
